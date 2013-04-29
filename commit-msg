@@ -1,0 +1,27 @@
+#!/bin/sh
+
+# Verify the commit message.
+
+# TODO: Attempt to determine the commit --cleanup mode and whether #comments 
+# will be stripped; if so, strip them here before verifying.
+
+
+unset CDPATH
+set -o errexit
+
+# Not clever enough to work when run from a symlink or ". script.sh".
+THIS_DIR=$(cd -P "$(dirname "$0")" && pwd)
+
+# Expect the name of the file holding the proposed commit message as the first 
+# argument.
+COMMIT_MESSAGE_FILE=$1
+
+"$THIS_DIR/utilities/validate_commit_message_format.sh" < "$COMMIT_MESSAGE_FILE"
+
+# Since git hooks have a stdin of /dev/null, need to manually get to the input 
+# device.
+# 
+# This will probably cause all kinds of trouble if this commit happens from a 
+# GUI or anywhere else besides a terminal. 
+# TODO: Make sure it doesn't crash and burn too hard.
+aspell check "$COMMIT_MESSAGE_FILE" </dev/tty
