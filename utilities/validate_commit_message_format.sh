@@ -26,7 +26,17 @@ then
 fi
 
 # Make sure lines aren't too long.
-LONGEST_LINE_LENGTH=$(echo "$COMMIT_MESSAGE" | wc --max-line-length)
+LONGEST_LINE_LENGTH=0
+ORIGINAL_IFS=$IFS
+IFS=$'\n'
+for LINE in $COMMIT_MESSAGE
+do
+	if [ ${#LINE} -gt $LONGEST_LINE_LENGTH ]
+	then
+		LONGEST_LINE_LENGTH=${#LINE}
+	fi
+done
+IFS=ORIGINAL_IFS
 if [ $LONGEST_LINE_LENGTH -gt $MAXIMUM_LINE_LENGTH ]
 then
 	echo 1>&2 "$0: Longest line of commit message was $LONGEST_LINE_LENGTH characters, maximum length is $MAXIMUM_LINE_LENGTH."
@@ -34,10 +44,10 @@ then
 fi
 
 # If there is more than one line, the second line must be blank.
-NUMBER_OF_LINES=$(echo "$COMMIT_MESSAGE" | wc --lines)
+NUMBER_OF_LINES=$(echo "$COMMIT_MESSAGE" | wc -l)
 if [ $NUMBER_OF_LINES -gt 1 ]
 then
-	SECOND_LINE=$(echo "$COMMIT_MESSAGE" | sed 2p --quiet)
+	SECOND_LINE=$(echo "$COMMIT_MESSAGE" | sed -n 2p)
 	if [ -n "$SECOND_LINE" ]
 	then
 		echo 1>&2 "$0: Second line of commit message ('$SECOND_LINE') was not blank."
