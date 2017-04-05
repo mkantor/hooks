@@ -37,7 +37,7 @@ do
 		LONGEST_LINE_LENGTH=${#LINE}
 	fi
 done
-IFS=ORIGINAL_IFS
+IFS=$ORIGINAL_IFS
 if [ $LONGEST_LINE_LENGTH -gt $MAXIMUM_LINE_LENGTH ]
 then
 	echo 1>&2 "$0: Longest line of commit message was $LONGEST_LINE_LENGTH characters, maximum length is $MAXIMUM_LINE_LENGTH."
