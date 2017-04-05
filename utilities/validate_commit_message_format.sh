@@ -28,7 +28,8 @@ fi
 # Make sure lines aren't too long.
 LONGEST_LINE_LENGTH=0
 ORIGINAL_IFS=$IFS
-IFS=$'\n'
+IFS='
+'
 for LINE in $COMMIT_MESSAGE
 do
 	if [ ${#LINE} -gt $LONGEST_LINE_LENGTH ]
