@@ -21,12 +21,53 @@ COMMIT_MESSAGE_FILE=$1
 # If aspell is present, check spelling.
 if command -v aspell > /dev/null 2>&1
 then
+	# If a cspell.json file exists at the repo root, try to load its custom words 
+	# into a dictionary for aspell. Any failure here is non-fatal (spell-checking 
+	# proceeds without the extra words).
+	PERSONAL_DICTIONARY=""
+	REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+	if [ -n "$REPO_ROOT" ] && [ -r "$REPO_ROOT/cspell.json" ]
+	then
+		if command -v jq > /dev/null 2>&1
+		then
+			CSPELL_WORDS=$(
+				jq \
+					-r '(.words // []) + (.ignoreWords // []) | .[]' "$REPO_ROOT/cspell.json" \
+					2>/dev/null \
+					|| true
+			)
+			if [ -n "$CSPELL_WORDS" ]
+			then
+				PERSONAL_DICTIONARY=$(
+					mktemp "${TMPDIR:-/tmp}/commit-msg-aspell.XXXXXX" 2>/dev/null || true
+				)
+				if [ -n "$PERSONAL_DICTIONARY" ]
+				then
+					trap 'rm -f "$PERSONAL_DICTIONARY"' EXIT
+
+					ASPELL_LOCALE=$(aspell config lang)
+					# aspell's personal dictionary header wants a base language code 
+					# ("en"), not a locale ("en_US"), so strip any suffix.
+					ASPELL_LANGUAGE=${ASPELL_LOCALE%%_*}
+
+					printf "personal_ws-1.1 %s 0\n%s\n" "$ASPELL_LANGUAGE" "$CSPELL_WORDS" \
+						> "$PERSONAL_DICTIONARY"
+				fi
+			fi
+		fi
+	fi
+
 	# Since git hooks have a stdin of /dev/null, we need to manually get to the 
 	# input device. When no TTY is attached (e.g. GUI clients), skip the check 
 	# rather than failing the commit.
 	if (: < /dev/tty) > /dev/null 2>&1
 	then
-		aspell check "$COMMIT_MESSAGE_FILE" < /dev/tty
+		if [ -n "$PERSONAL_DICTIONARY" ]
+		then
+			aspell check --personal="$PERSONAL_DICTIONARY" "$COMMIT_MESSAGE_FILE" < /dev/tty
+		else
+			aspell check "$COMMIT_MESSAGE_FILE" < /dev/tty
+		fi
 	else
 		echo 1>&2 "$0: No TTY available; skipping spell check."
 	fi
