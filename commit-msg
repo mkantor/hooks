@@ -2,9 +2,6 @@
 
 # Verify the commit message.
 
-# TODO: Attempt to determine the commit --cleanup mode and whether #comments 
-# will be stripped; if so, strip them here before verifying.
-
 
 unset CDPATH
 set -o errexit
@@ -16,7 +13,57 @@ THIS_DIR=$(cd -P "$(dirname "$0")" && pwd)
 # argument.
 COMMIT_MESSAGE_FILE=$1
 
-"$THIS_DIR/utilities/validate_commit_message_format.sh" < "$COMMIT_MESSAGE_FILE"
+# git doesn't expose the active `--cleanup` mode, so honor the `commit.cleanup` 
+# config and assume it wasn't overridden on the command line:
+#  	- verbatim, whitespace: leave the message alone (git will keep comments)
+#  	- scissors: truncate from the "------------------------ >8 ----…" line 
+#  	  onwards; comments above the scissors are preserved
+#  	- strip, default: drop comment lines
+CLEANUP_MODE=$(git config --get commit.cleanup 2>/dev/null || true)
+if [ -z "$CLEANUP_MODE" ]
+then
+	CLEANUP_MODE="default"
+fi
+
+COMMENT_CHARACTER=$(git config --get core.commentChar 2>/dev/null || true)
+if [ -z "$COMMENT_CHARACTER" ] || [ "$COMMENT_CHARACTER" = "auto" ]
+then
+	# `auto` lets git pick a character not used at the start of any line; the 
+	# first (and usual) choice is '#'.
+	COMMENT_CHARACTER="#"
+fi
+
+case "$CLEANUP_MODE" in
+	verbatim|whitespace) STRIP_COMMENTS=0; CUT_AT_SCISSORS=0 ;;
+	scissors)            STRIP_COMMENTS=0; CUT_AT_SCISSORS=1 ;;
+	strip|default)       STRIP_COMMENTS=1; CUT_AT_SCISSORS=0 ;;
+	*) echo 1>&2 "$0: Unrecognized commit.cleanup mode '$CLEANUP_MODE'." ; exit 1 ;;
+esac
+
+# Build a cleaned copy of the message for the format check, so it doesn't trip 
+# over content that git will strip before committing.
+CLEANED_COMMIT_MESSAGE=$(
+	awk \
+		-v commentCharacter="$COMMENT_CHARACTER" \
+		-v strip="$STRIP_COMMENTS" \
+		-v cutScissors="$CUT_AT_SCISSORS" \
+		'
+			{
+				if (cut) next
+				if (substr($0, 1, length(commentCharacter)) == commentCharacter) {
+					if (cutScissors && index($0, "------------------------ >8 ------------------------") > 0) {
+						cut = 1
+						next
+					}
+					if (strip) next
+				}
+				print
+			}
+		' \
+		< "$COMMIT_MESSAGE_FILE"
+)
+
+echo "$CLEANED_COMMIT_MESSAGE" | "$THIS_DIR/utilities/validate_commit_message_format.sh"
 
 # If aspell is present, check spelling.
 if command -v aspell > /dev/null 2>&1
@@ -57,17 +104,28 @@ then
 		fi
 	fi
 
+	# Build aspell args mirroring the cleanup mode: in modes where git would 
+	# strip comments, tell aspell to skip them via email mode (without modifying 
+	# the file, so interactive corrections still land in the real commit 
+	# message). In modes where comments are kept (verbatim/whitespace/scissors), 
+	# let aspell spell-check them too. Note that with scissors mode, comments 
+	# after the scissors line are stripped by git but still checked by aspell.
+	set --
+	if [ "$STRIP_COMMENTS" -eq 1 ]
+	then
+		set -- "$@" --mode=email --add-email-quote="$COMMENT_CHARACTER"
+	fi
+	if [ -n "$PERSONAL_DICTIONARY" ]
+	then
+		set -- "$@" --personal="$PERSONAL_DICTIONARY"
+	fi
+
 	# Since git hooks have a stdin of /dev/null, we need to manually get to the 
 	# input device. When no TTY is attached (e.g. GUI clients), skip the check 
 	# rather than failing the commit.
 	if (: < /dev/tty) > /dev/null 2>&1
 	then
-		if [ -n "$PERSONAL_DICTIONARY" ]
-		then
-			aspell check --personal="$PERSONAL_DICTIONARY" "$COMMIT_MESSAGE_FILE" < /dev/tty
-		else
-			aspell check "$COMMIT_MESSAGE_FILE" < /dev/tty
-		fi
+		aspell check "$@" "$COMMIT_MESSAGE_FILE" < /dev/tty
 	else
 		echo 1>&2 "$0: No TTY available; skipping spell check."
 	fi
