@@ -21,11 +21,13 @@ COMMIT_MESSAGE_FILE=$1
 # If aspell is present, check spelling.
 if command -v aspell > /dev/null 2>&1
 then
-	# Since git hooks have a stdin of /dev/null, need to manually get to the 
-	# input device.
-	# 
-	# This will probably cause all kinds of trouble if this commit happens 
-	# from a GUI or anywhere else besides a terminal. 
-	# TODO: Make sure it doesn't crash and burn too hard.
-	aspell check "$COMMIT_MESSAGE_FILE" < /dev/tty
+	# Since git hooks have a stdin of /dev/null, we need to manually get to the 
+	# input device. When no TTY is attached (e.g. GUI clients), skip the check 
+	# rather than failing the commit.
+	if (: < /dev/tty) > /dev/null 2>&1
+	then
+		aspell check "$COMMIT_MESSAGE_FILE" < /dev/tty
+	else
+		echo 1>&2 "$0: No TTY available; skipping spell check."
+	fi
 fi
